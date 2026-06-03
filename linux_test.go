@@ -7,7 +7,6 @@ import (
 	"os"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestMaintainMode(t *testing.T) {
@@ -115,9 +114,10 @@ func TestCompressMaintainMode(t *testing.T) {
 	err = l.Rotate()
 	isNil(err, t)
 
-	// we need to wait a little bit since the files get compressed on a different
-	// goroutine.
-	<-time.After(10 * time.Millisecond)
+	// Closing flushes the pending compression and waits for the mill
+	// goroutine to exit, which also synchronizes its writes with the
+	// assertions below.
+	isNil(l.Close(), t)
 
 	// a compressed version of the log file should now exist with the correct
 	// mode.
@@ -165,9 +165,10 @@ func TestCompressMaintainOwner(t *testing.T) {
 	err = l.Rotate()
 	isNil(err, t)
 
-	// we need to wait a little bit since the files get compressed on a different
-	// goroutine.
-	<-time.After(10 * time.Millisecond)
+	// Closing flushes the pending compression and waits for the mill
+	// goroutine to exit, which also synchronizes its writes to fakeFS with
+	// the assertions below.
+	isNil(l.Close(), t)
 
 	// a compressed version of the log file should now exist with the correct
 	// owner.
