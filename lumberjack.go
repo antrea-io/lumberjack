@@ -387,9 +387,25 @@ func (l *Logger) millRunOnce() error {
 
 // millRun runs in a goroutine to manage post-rotation compression and removal
 // of old log files.  It exits when done is closed (via stopMill).
+//
+// A pending mill request takes priority over done: if both are ready when the
+// goroutine wakes up (which happens when Close races with a rotation), the
+// request is drained first.  This guarantees that the last rotation's
+// compression/cleanup is performed before the goroutine exits, rather than
+// being dropped by select's random choice.  Because millRunOnce processes the
+// whole directory on every pass, draining the single buffered request also
+// covers any rotations whose requests were coalesced away.
 func (l *Logger) millRun(ch chan bool, done chan struct{}) {
 	defer l.millWG.Done()
 	for {
+		// Drain a pending request before honoring done.
+		select {
+		case <-ch:
+			// what am I going to do, log this?
+			_ = l.millRunOnce()
+			continue
+		default:
+		}
 		select {
 		case <-done:
 			return

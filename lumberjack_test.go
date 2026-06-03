@@ -784,6 +784,43 @@ func TestCloseDoesNotLeakGoroutines(t *testing.T) {
 		"mill goroutines leaked after Close: before=%d after=%d", before, after)
 }
 
+func TestMillRunDrainsPendingRequestBeforeStop(t *testing.T) {
+	currentTime = fakeTime
+
+	// When Close races a rotation, the rotation's compression request can be
+	// buffered in millCh at the same time millDone is closed. millRun must
+	// drain the request before exiting, rather than letting select's random
+	// choice drop it. Drive millRun synchronously with both a queued request
+	// and a closed done channel so the outcome is deterministic: a correct
+	// implementation always performs the pending compression. The loop makes a
+	// regression (the previous random select) fail reliably rather than ~50%.
+	for i := 0; i < 50; i++ {
+		dir := makeTempDir(fmt.Sprintf("TestMillDrain%d", i), t)
+
+		l := &Logger{
+			Filename: logFile(dir),
+			Compress: true,
+		}
+		// Pre-create a backup that the mill is expected to compress.
+		backup := backupFile(dir)
+		err := ioutil.WriteFile(backup, []byte("content"), 0644)
+		isNil(err, t)
+
+		l.millCh = make(chan bool, 1)
+		l.millDone = make(chan struct{})
+		l.millCh <- true
+		close(l.millDone)
+		l.millWG.Add(1)
+		l.millRun(l.millCh, l.millDone)
+
+		// The queued request must have been honored before millRun returned.
+		exists(backup+compressSuffix, t)
+		notExist(backup, t)
+
+		os.RemoveAll(dir)
+	}
+}
+
 // makeTempDir creates a file with a semi-unique name in the OS temp directory.
 // It should be based on the name of the test, to keep parallel tests from
 // colliding, and must be cleaned up after the test is finished.
