@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -22,9 +23,19 @@ import (
 // Since all the tests uses the time to determine filenames etc, we need to
 // control the wall clock as much as possible, which means having a wall clock
 // that doesn't change unless we want it to.
-var fakeCurrentTime = time.Now()
+//
+// fakeCurrentTime is read through the currentTime hook by the background mill
+// goroutine while tests advance it with newFakeTime, so it must be guarded to
+// avoid a data race in the mock (the real currentTime, time.Now, is itself
+// safe for concurrent use).
+var (
+	fakeCurrentTimeMu sync.Mutex
+	fakeCurrentTime   = time.Now()
+)
 
 func fakeTime() time.Time {
+	fakeCurrentTimeMu.Lock()
+	defer fakeCurrentTimeMu.Unlock()
 	return fakeCurrentTime
 }
 
@@ -872,6 +883,8 @@ func fileCount(dir string, exp int, t testing.TB) {
 
 // newFakeTime sets the fake "current time" to two days later.
 func newFakeTime() {
+	fakeCurrentTimeMu.Lock()
+	defer fakeCurrentTimeMu.Unlock()
 	fakeCurrentTime = fakeCurrentTime.Add(time.Hour * 24 * 2)
 }
 
