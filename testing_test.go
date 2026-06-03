@@ -83,7 +83,7 @@ func _isNil(obtained interface{}) bool {
 	}
 
 	switch v := reflect.ValueOf(obtained); v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return v.IsNil()
 	}
 
