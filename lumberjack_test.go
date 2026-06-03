@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -705,6 +706,82 @@ func TestJson(t *testing.T) {
 	equals(3, l.MaxBackups, t)
 	equals(true, l.LocalTime, t)
 	equals(true, l.Compress, t)
+}
+
+func TestCloseStopsMillGoroutine(t *testing.T) {
+	currentTime = fakeTime
+	megabyte = 1
+
+	dir := makeTempDir("TestCloseStopsMillGoroutine", t)
+	defer os.RemoveAll(dir)
+
+	// Compression/cleanup must be enabled, otherwise millRunOnce short-circuits
+	// and the mill goroutine, while running, would do nothing.
+	l := &Logger{
+		Filename:   logFile(dir),
+		MaxSize:    10,
+		MaxBackups: 1,
+	}
+
+	// A Write that forces a rotation starts the mill goroutine.
+	b := []byte("boooooo!")
+	n, err := l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+	newFakeTime()
+	n, err = l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+
+	notNil(l.millCh, t)
+
+	// Closing must stop the goroutine and release its channels.
+	isNil(l.Close(), t)
+	isNil(l.millCh, t)
+
+	// The Logger must remain usable after Close: a subsequent Write reopens the
+	// file and restarts the mill goroutine without panicking.
+	newFakeTime()
+	n, err = l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+	notNil(l.millCh, t)
+	isNil(l.Close(), t)
+	isNil(l.millCh, t)
+}
+
+func TestCloseDoesNotLeakGoroutines(t *testing.T) {
+	currentTime = fakeTime
+	megabyte = 1
+
+	dir := makeTempDir("TestCloseDoesNotLeakGoroutines", t)
+	defer os.RemoveAll(dir)
+
+	// Let any goroutines from earlier tests settle before sampling.
+	time.Sleep(50 * time.Millisecond)
+	before := runtime.NumGoroutine()
+
+	for i := 0; i < 50; i++ {
+		l := &Logger{
+			Filename:   filepath.Join(dir, fmt.Sprintf("foobar%d.log", i)),
+			MaxSize:    10,
+			MaxBackups: 1,
+		}
+		b := []byte("boooooo!")
+		_, err := l.Write(b)
+		isNil(err, t)
+		newFakeTime()
+		_, err = l.Write(b)
+		isNil(err, t)
+		// Close must join the mill goroutine; nothing should leak.
+		isNil(l.Close(), t)
+	}
+
+	after := runtime.NumGoroutine()
+	// Allow a small slack for runtime/test bookkeeping goroutines, but the count
+	// must not grow with the number of loggers we created and closed.
+	assert(after <= before+2, t,
+		"mill goroutines leaked after Close: before=%d after=%d", before, after)
 }
 
 // makeTempDir creates a file with a semi-unique name in the OS temp directory.

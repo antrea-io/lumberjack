@@ -111,8 +111,14 @@ type Logger struct {
 	file *os.File
 	mu   sync.Mutex
 
-	millCh    chan bool
-	startMill sync.Once
+	// millCh signals the mill goroutine to run a compression/cleanup pass.
+	// millDone is closed to ask the mill goroutine to terminate, and millWG
+	// tracks its lifetime so Close can wait for it to exit. All three are
+	// guarded by mu, which is also held whenever the mill goroutine is
+	// (re)started or stopped, so no additional synchronization is needed.
+	millCh   chan bool
+	millDone chan struct{}
+	millWG   sync.WaitGroup
 }
 
 var (
@@ -161,11 +167,17 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
-// Close implements io.Closer, and closes the current logfile.
+// Close implements io.Closer, and closes the current logfile.  It also stops
+// the background mill goroutine (compression/cleanup), if running, and waits
+// for it to exit, so that closing a Logger releases all of its resources.  A
+// Logger may be reused after Close: a subsequent Write transparently reopens
+// the file and restarts the mill goroutine.
 func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.close()
+	err := l.close()
+	l.stopMill()
+	return err
 }
 
 // close closes the file if it is open.
@@ -374,25 +386,49 @@ func (l *Logger) millRunOnce() error {
 }
 
 // millRun runs in a goroutine to manage post-rotation compression and removal
-// of old log files.
-func (l *Logger) millRun() {
-	for range l.millCh {
-		// what am I going to do, log this?
-		_ = l.millRunOnce()
+// of old log files.  It exits when done is closed (via stopMill).
+func (l *Logger) millRun(ch chan bool, done chan struct{}) {
+	defer l.millWG.Done()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ch:
+			// what am I going to do, log this?
+			_ = l.millRunOnce()
+		}
 	}
 }
 
 // mill performs post-rotation compression and removal of stale log files,
-// starting the mill goroutine if necessary.
+// starting the mill goroutine if necessary.  It is always called with l.mu
+// held.
 func (l *Logger) mill() {
-	l.startMill.Do(func() {
+	if l.millCh == nil {
 		l.millCh = make(chan bool, 1)
-		go l.millRun()
-	})
+		l.millDone = make(chan struct{})
+		l.millWG.Add(1)
+		go l.millRun(l.millCh, l.millDone)
+	}
 	select {
 	case l.millCh <- true:
 	default:
 	}
+}
+
+// stopMill signals the mill goroutine to terminate and waits for it to exit.
+// It is a no-op if the goroutine is not running.  It is always called with
+// l.mu held; the goroutine does not acquire l.mu, so waiting here cannot
+// deadlock.  After stopMill returns, a later mill() call will start a fresh
+// goroutine.
+func (l *Logger) stopMill() {
+	if l.millCh == nil {
+		return
+	}
+	close(l.millDone)
+	l.millWG.Wait()
+	l.millCh = nil
+	l.millDone = nil
 }
 
 // oldLogFiles returns the list of backup log files stored in the same
