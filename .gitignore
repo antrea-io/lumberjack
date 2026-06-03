@@ -21,3 +21,6 @@ _testmain.go
 
 *.exe
 *.test
+
+# golangci-lint binary installed by the Makefile
+/.golangci-bin/
