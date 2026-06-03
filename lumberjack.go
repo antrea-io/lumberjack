@@ -3,7 +3,7 @@
 // Note that this is v2.0 of lumberjack, and should be imported using gopkg.in
 // thusly:
 //
-//   import "gopkg.in/natefinch/lumberjack.v2"
+//	import "gopkg.in/natefinch/lumberjack.v2"
 //
 // The package name remains simply lumberjack, and the code resides at
 // https://github.com/natefinch/lumberjack under the v2.0 branch.
@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -66,7 +65,7 @@ var _ io.WriteCloser = (*Logger)(nil)
 // `/var/log/foo/server.log`, a backup created at 6:30pm on Nov 11 2016 would
 // use the filename `/var/log/foo/server-2016-11-04T18-30-00.000.log`
 //
-// Cleaning Up Old Log Files
+// # Cleaning Up Old Log Files
 //
 // Whenever a new logfile gets created, old log files may be deleted.  The most
 // recent files according to the encoded timestamp will be retained, up to a
@@ -331,10 +330,7 @@ func (l *Logger) millRunOnce() error {
 		for _, f := range files {
 			// Only count the uncompressed log file or the
 			// compressed log file, not both.
-			fn := f.Name()
-			if strings.HasSuffix(fn, compressSuffix) {
-				fn = fn[:len(fn)-len(compressSuffix)]
-			}
+			fn := strings.TrimSuffix(f.Name(), compressSuffix)
 			preserved[fn] = true
 
 			if len(preserved) > l.MaxBackups {
@@ -450,7 +446,7 @@ func (l *Logger) stopMill() {
 // oldLogFiles returns the list of backup log files stored in the same
 // directory as the current log file, sorted by ModTime
 func (l *Logger) oldLogFiles() ([]logInfo, error) {
-	files, err := ioutil.ReadDir(l.dir())
+	entries, err := os.ReadDir(l.dir())
 	if err != nil {
 		return nil, fmt.Errorf("can't read log file directory: %s", err)
 	}
@@ -458,16 +454,21 @@ func (l *Logger) oldLogFiles() ([]logInfo, error) {
 
 	prefix, ext := l.prefixAndExt()
 
-	for _, f := range files {
-		if f.IsDir() {
+	for _, e := range entries {
+		if e.IsDir() {
 			continue
 		}
-		if t, err := l.timeFromName(f.Name(), prefix, ext); err == nil {
-			logFiles = append(logFiles, logInfo{t, f})
+		info, err := e.Info()
+		if err != nil {
+			// The file may have been removed since ReadDir listed it.
 			continue
 		}
-		if t, err := l.timeFromName(f.Name(), prefix, ext+compressSuffix); err == nil {
-			logFiles = append(logFiles, logInfo{t, f})
+		if t, err := l.timeFromName(info.Name(), prefix, ext); err == nil {
+			logFiles = append(logFiles, logInfo{t, info})
+			continue
+		}
+		if t, err := l.timeFromName(info.Name(), prefix, ext+compressSuffix); err == nil {
+			logFiles = append(logFiles, logInfo{t, info})
 			continue
 		}
 		// error parsing means that the suffix at the end was not generated
