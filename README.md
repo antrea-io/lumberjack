@@ -1,3 +1,10 @@
+> **Note:** This repository is a fork of
+    [https://github.com/natefinch/lumberjack](https://github.com/natefinch/lumberjack), which is no
+    longer actively maintained. The fork may end up being temporary. We will migrate back to
+    upstream lumberjack if it becomes actively maintained again, or we may migrate to
+    [https://github.com/DeRuina/timberjack](https://github.com/DeRuina/timberjack) once the project
+    gains in maturity.
+
 # lumberjack  [![GoDoc](https://godoc.org/gopkg.in/natefinch/lumberjack.v2?status.png)](https://godoc.org/gopkg.in/natefinch/lumberjack.v2) [![Build Status](https://travis-ci.org/natefinch/lumberjack.svg?branch=v2.0)](https://travis-ci.org/natefinch/lumberjack) [![Build status](https://ci.appveyor.com/api/projects/status/00gchpxtg4gkrt5d)](https://ci.appveyor.com/project/natefinch/lumberjack) [![Coverage Status](https://coveralls.io/repos/natefinch/lumberjack/badge.svg?branch=v2.0)](https://coveralls.io/r/natefinch/lumberjack?branch=v2.0)
 
 ### Lumberjack is a Go package for writing logs to rolling files.
